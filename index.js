@@ -134,8 +134,13 @@ async function handleIntentRequest(event) {
         if (!mac) {
             return say("Sorry, I couldn't determine which device you want me to talk to.");
         }
+        var existing = await getDisplayConfig(mac);
+        var newConfig = {description:eventName, timestamp:EVENTS[eventName]};
+        if (existing.color) {
+            newConfig.color = existing.color;
+        }
         if (eventName) {
-            var x = await updateDisplayConfig(mac, {description:eventName, timestamp:EVENTS[eventName]});
+            var x = await updateDisplayConfig(mac, newConfig);
             return say("OK, " + desc + " will start counting down to " + eventName + " within the next minute.");
         }
         else {
