@@ -2,6 +2,7 @@ var AWS = require('aws-sdk');
 AWS.config.update({region:'eu-west-1'});
 
 const DATABASE_NAME_DEVICE_CONFIG = "BadgeData";
+const DATABASE_NAME_DEVICE_LIST = "BadgeDevices";
 
 const EVENTS = {
     'ERROR': '2000-00-00T00:00:00.000Z',
@@ -11,31 +12,7 @@ const EVENTS = {
     'Q-PEC': '2019-02-04T19:00:00.000Z'
 };
 
-var resourcegroupstaggingapi = new AWS.ResourceGroupsTaggingAPI();
 var dynamodb = new AWS.DynamoDB();
-
-function setEventTag(eventName, callback) {
-    var params = {
-        ResourceARNList: [process.env.MY_ARN],
-        Tags: { 'MyEvent': eventName } /* required */
-    };
-    resourcegroupstaggingapi.tagResources(params, callback);
-}
-
-function setTextTag(eventName, callback) {
-    var params = {
-        ResourceARNList: [process.env.MY_ARN],
-        Tags: { 'MyText': eventName } /* required */
-    };
-    resourcegroupstaggingapi.tagResources(params, callback);
-}
-
-function getEventTag(callback) {
-    var params = {
-        Key: 'MyEvent'
-    };
-    resourcegroupstaggingapi.getTagValues(params, callback);    
-}
 
 function getDisplayConfig(deviceId) {
     return new Promise(resolve => {
@@ -63,11 +40,55 @@ function getDisplayConfig(deviceId) {
     });
 }
 
-function getTextTag(callback) {
-    var params = {
-        Key: 'MyText'
-    };
-    resourcegroupstaggingapi.getTagValues(params, callback);    
+function updateDisplayConfig(deviceId, cfg) {
+    return new Promise(resolve => {
+        var params = {
+            TableName:DATABASE_NAME_DEVICE_CONFIG,
+            Key:{
+                "deviceId":{S:deviceId}
+            },
+            ExpressionAttributeValues: {
+                ":config": {
+                    "M": {}
+                }
+            },
+            UpdateExpression: "SET config = :config"
+        };
+        for (var k in cfg) {
+            params.ExpressionAttributeValues[":config"].M[k] = {S:cfg[k]};
+        }
+        dynamodb.updateItem(params, function(err, data) {
+            console.log(err);
+            if (err || !data) {
+                return resolve(null);
+            }
+            return resolve(data);
+        });
+    });
+}
+
+function getMacAddress(deviceNumber) {
+    return new Promise(resolve => {
+        var params = {
+            TableName:DATABASE_NAME_DEVICE_LIST,
+            Key:{
+                "deviceId":{S:deviceNumber}
+            }
+        };
+        dynamodb.getItem(params, function(err, data) {
+            if (err || !data) {
+                return resolve(null);
+            }
+            if (data.Item && data.Item.mac && data.Item.mac.S) {
+                var r = {mac:data.Item.mac.S};
+                if (data.Item && data.Item.desc && data.Item.desc.S) {
+                    r.desc = data.Item.desc.S;
+                }
+                return resolve(r);
+            }
+            return resolve(null);
+        });
+    });
 }
 
 function say(x) {
@@ -83,10 +104,12 @@ function say(x) {
     };
 }
 
-function handleIntentRequest(event) {
+async function handleIntentRequest(event) {
     switch (event.request.intent.name) {
     case "CountDownIntent":
         var eventName = undefined;
+        var mac = undefined;
+        var desc = "the device";
         var slots = event.request.intent.slots;
         if (slots["event"]) {
             var slot = slots["event"];
@@ -101,61 +124,25 @@ function handleIntentRequest(event) {
                 }
             }
         }
+        if (slots["devicenumber"] && slots["devicenumber"].value) {
+            var dx = await getMacAddress(slots["devicenumber"].value.toString());
+            mac = dx.mac;
+            if (dx.desc) {
+                desc = dx.desc;
+            }
+        }
+        if (!mac) {
+            return say("Sorry, I couldn't determine which device you want me to talk to.");
+        }
         if (eventName) {
-            return new Promise(resolve => {
-                setEventTag(eventName, function(err, data) {
-                    if (err) {
-                        console.log(err, err.stack);
-                        resolve(say(err));
-                    }
-                    else {
-                        console.log(data);
-                        resolve(say("OK, The Bauble will start counting down to " + eventName + " within the next minute."));
-                    }
-                });
-            });
+            var x = await updateDisplayConfig(mac, {description:eventName, timestamp:EVENTS[eventName]});
+            return say("OK, " + desc + " will start counting down to " + eventName + " within the next minute.");
         }
         else {
             return say("Sorry, I couldn't determine which event you want me count down to.");
         }
     }
     return say("Oops!");
-}
-
-function getEventName() {
-    return new Promise(resolve => {
-        getEventTag(function (err, data) {
-            if (err) {
-                console.log(err, err.stack);
-                resolve("ERROR");
-                return;
-            }
-            if (!data || !data.TagValues || (data.TagValues.length == 0)) {
-                console.log("Tag value not found");
-                resolve("ERROR");
-                return;
-            }
-            resolve(data.TagValues[0]);
-        });
-    });
-}
-
-function getText() {
-    return new Promise(resolve => {
-        getTextTag(function (err, data) {
-            if (err) {
-                console.log(err, err.stack);
-                resolve("ERROR");
-                return;
-            }
-            if (!data || !data.TagValues || (data.TagValues.length == 0)) {
-                console.log("Tag value not found");
-                resolve("ERROR");
-                return;
-            }
-            resolve(data.TagValues[0]);
-        });
-    });
 }
 
 exports.handler = async (event) => {
