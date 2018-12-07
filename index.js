@@ -1,19 +1,31 @@
 var AWS = require('aws-sdk');
 AWS.config.update({region:'eu-west-1'});
 
+const DATABASE_NAME_DEVICE_CONFIG = "BadgeData";
+
 const EVENTS = {
     'ERROR': '2000-00-00T00:00:00.000Z',
     'Christmas': '2018-12-25T00:00:00.000Z',
     'Summit': '2019-01-07T13:30:00.000Z',
-    'Synergy': '2019-05-21T13:00:00.000Z'
+    'Synergy': '2019-05-21T13:00:00.000Z',
+    'Q-PEC': '2019-02-04T19:00:00.000Z'
 };
 
 var resourcegroupstaggingapi = new AWS.ResourceGroupsTaggingAPI();
+var dynamodb = new AWS.DynamoDB();
 
 function setEventTag(eventName, callback) {
     var params = {
-        ResourceARNList: ['<my lambda ARN>'],
+        ResourceARNList: [process.env.MY_ARN],
         Tags: { 'MyEvent': eventName } /* required */
+    };
+    resourcegroupstaggingapi.tagResources(params, callback);
+}
+
+function setTextTag(eventName, callback) {
+    var params = {
+        ResourceARNList: [process.env.MY_ARN],
+        Tags: { 'MyText': eventName } /* required */
     };
     resourcegroupstaggingapi.tagResources(params, callback);
 }
@@ -21,6 +33,39 @@ function setEventTag(eventName, callback) {
 function getEventTag(callback) {
     var params = {
         Key: 'MyEvent'
+    };
+    resourcegroupstaggingapi.getTagValues(params, callback);    
+}
+
+function getDisplayConfig(deviceId) {
+    return new Promise(resolve => {
+        var params = {
+            TableName:DATABASE_NAME_DEVICE_CONFIG,
+            Key:{
+                "deviceId":{S:deviceId}
+            }
+        };
+        dynamodb.getItem(params, function(err, data) {
+            if (err || !data) {
+                return resolve(null);
+            }
+            if (data.Item && data.Item.config && data.Item.config.M) {
+                var x = {};
+                for (var k in data.Item.config.M) {
+                    if (data.Item.config.M[k].S) {
+                        x[k] = data.Item.config.M[k].S;
+                    }
+                }
+                return resolve(x);
+            }
+            return resolve(null);
+        });
+    });
+}
+
+function getTextTag(callback) {
+    var params = {
+        Key: 'MyText'
     };
     resourcegroupstaggingapi.getTagValues(params, callback);    
 }
@@ -95,8 +140,26 @@ function getEventName() {
     });
 }
 
+function getText() {
+    return new Promise(resolve => {
+        getTextTag(function (err, data) {
+            if (err) {
+                console.log(err, err.stack);
+                resolve("ERROR");
+                return;
+            }
+            if (!data || !data.TagValues || (data.TagValues.length == 0)) {
+                console.log("Tag value not found");
+                resolve("ERROR");
+                return;
+            }
+            resolve(data.TagValues[0]);
+        });
+    });
+}
+
 exports.handler = async (event) => {
-    
+
     if (event && event.request && event.request.type) {
         switch (event.request.type) {
         case "IntentRequest":
@@ -105,13 +168,25 @@ exports.handler = async (event) => {
         }
     }
 
-    var eventName = await getEventName();    
+    if (event && event.queryStringParameters && event.queryStringParameters.deviceid) {       
+        var cmd = await getDisplayConfig(event.queryStringParameters.deviceid);
+        if (cmd.description == "Q-PEC") {
+            cmd.description == "QPEC";
+        }
+        if (cmd.timestamp) {
+            cmd.remaining = (new Date(cmd.timestamp) - new Date())/1000;
+            delete cmd.timestamp;
+        }
+        const response = {
+            statusCode: 200,
+            body: JSON.stringify(cmd)
+        };
+        return response;
+    }
+
     const response = {
-        statusCode: 200,
-        body: JSON.stringify({
-            "description":eventName,
-            "remaining":(new Date(EVENTS[eventName]) - new Date())/1000
-        })
-    };    
-    return response;
+        statusCode: 404,
+        body: "Not found"
+    };
+    return response;    
 };
