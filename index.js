@@ -136,7 +136,7 @@ async function handleIntentRequest(event) {
         }
         var existing = await getDisplayConfig(mac);
         var newConfig = {description:eventName, timestamp:EVENTS[eventName]};
-        if (existing.color) {
+        if (existing && existing.color) {
             newConfig.color = existing.color;
         }
         if (eventName) {
