@@ -108,6 +108,26 @@ function say(x) {
     };
 }
 
+function extractBestSlotMatch(slot, useId) {
+    var ret = slot.value;
+    if (slot.resolutions && slot.resolutions.resolutionsPerAuthority) {
+        if (slot.resolutions.resolutionsPerAuthority.length > 0) {
+            var auth = slot.resolutions.resolutionsPerAuthority[0];
+            if (auth.values && (auth.values.length > 0)) {
+                if (auth.values[0].value) {
+                    if (auth.values[0].value.name && !useId) {
+                        ret = auth.values[0].value.name;
+                    }
+                    if (auth.values[0].value.id && useId) {
+                        ret = auth.values[0].value.id;
+                    }
+                }
+            }
+        }
+    }
+    return ret;
+}
+
 async function handleIntentRequest(event) {
     switch (event.request.intent.name) {
     case "CountDownIntent":
@@ -116,23 +136,16 @@ async function handleIntentRequest(event) {
         var desc = "the device";
         var slots = event.request.intent.slots;
         if (slots["event"]) {
-            var slot = slots["event"];
-            if (slot.resolutions && slot.resolutions.resolutionsPerAuthority) {
-                if (slot.resolutions.resolutionsPerAuthority.length > 0) {
-                    var auth = slot.resolutions.resolutionsPerAuthority[0];
-                    if (auth.values && (auth.values.length > 0)) {
-                        if (auth.values[0].value && auth.values[0].value.name) {
-                            eventName = auth.values[0].value.name;
-                        }
-                    }
-                }
-            }
+            eventName = extractBestSlotMatch(slots["event"], false);
         }
-        if (slots["devicenumber"] && slots["devicenumber"].value) {
-            var dx = await getMacAddress(slots["devicenumber"].value.toString());
-            mac = dx.mac;
-            if (dx.desc) {
-                desc = dx.desc;
+        if (slots["devicenumber"]) {
+            var deviceId = extractBestSlotMatch(slots["devicenumber"], true);
+            if (deviceId) {
+                var dx = await getMacAddress(deviceId);
+                mac = dx.mac;
+                if (dx.desc) {
+                    desc = dx.desc;
+                }
             }
         }
         if (!mac) {
