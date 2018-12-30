@@ -186,7 +186,15 @@ exports.handler = async (event) => {
 
     if (event && event.queryStringParameters && event.queryStringParameters.deviceid) {       
         if (event.httpMethod == "POST") {
+            var existing = await getDisplayConfig(event.queryStringParameters.deviceid);
             var newConfig = JSON.parse(event.body);
+            if (existing) {
+                for (var k in existing) {
+                    if (k.indexOf("cfg") == 0) {
+                        newConfig[k] = existing[k];
+                    }
+                }
+            }
             var x = await updateDisplayConfig(event.queryStringParameters.deviceid, newConfig);
         }
         var cmd = await getDisplayConfig(event.queryStringParameters.deviceid);
