@@ -185,7 +185,18 @@ exports.handler = async (event) => {
     }
 
     if (event && event.queryStringParameters && event.queryStringParameters.deviceid) {       
+        if (event.httpMethod == "POST") {
+            var newConfig = JSON.parse(event.body);
+            var x = await updateDisplayConfig(event.queryStringParameters.deviceid, newConfig);
+        }
         var cmd = await getDisplayConfig(event.queryStringParameters.deviceid);
+        if (!cmd) {
+            const response = {
+                statusCode: 500,
+                body: JSON.stringify({debug:event})
+            };
+            return response;
+        }
         if (cmd.description == "Q-PEC") {
             cmd.description == "QPEC";
         }
